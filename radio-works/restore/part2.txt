@@ -1,0 +1,118 @@
+<script>
+(function(){function h(){
+ var vv=(window.visualViewport&&visualViewport.height)||innerHeight;
+ var v=Math.min(vv,innerHeight||vv);
+ if(v>300)document.documentElement.style.setProperty('--appH',Math.round(v)+'px');}
+ h();addEventListener('resize',h);addEventListener('orientationchange',function(){setTimeout(h,300);});
+ if(window.visualViewport){visualViewport.addEventListener('resize',h);visualViewport.addEventListener('scroll',h);}
+})();
+</script>
+<div id="artBg"></div><div id="artBgB"></div>
+<div id="wash" class="paused"></div>
+<div id="shell">
+  <div id="buildTag"></div>
+  <nav id="tabs">
+    <button class="tab on" data-p="0"><span></span><i>Playing</i></button>
+    <button class="tab" data-p="1"><span></span><i>Browse</i></button>
+    <button class="tab" data-p="2"><span></span><i>Fable</i></button>
+    <button class="tab" data-p="3"><span></span><i>Saved</i></button>
+    <button class="tab" data-p="4"><span></span><i>Similar</i></button>
+  </nav>
+
+  <div id="pager">
+    <!-- 0 NOW PLAYING -->
+    <div class="pane" id="paneNow">
+      <div class="npStack">
+        <div id="bigLogoWrap" class="paused">
+          <span id="bigLogoFallback">◉</span>
+          <img id="bigLogo" alt="">
+          <img id="bigLogoB" alt="">
+        </div>
+        <div class="npText">
+          <div id="bigName">Nothing playing</div>
+          <div id="bigArtist">Pick a station to begin</div>
+          <div id="npPlace"></div>
+          <div id="npWeather"></div>
+          <div id="npStation"></div>
+          <div id="lockRow"></div>
+        </div>
+      </div>
+      <div class="npCtl">
+        <div id="transport">
+          <button class="tBtn" id="tPrev"></button>
+          <button class="tBtn big" id="tPlay"></button>
+          <button class="tBtn" id="tNext"></button>
+        </div>
+        <div id="npHint">swipe down for calm</div>
+        <div id="dock">
+          <button class="dockBtn" id="tBack10"><span class="seekGlyph">-10</span><i>Back</i></button>
+          <button class="dockBtn" id="dPreset"><span></span><i>Preset</i></button>
+          <button class="dockBtn" id="dShazam"><span></span><i>Identify</i></button>
+          <button class="dockBtn" id="dSpotify"><span></span><i>Spotify</i></button>
+          <button class="dockBtn" id="dRandom"><span></span><i>Surprise</i></button>
+          <button class="dockBtn" id="dSave"><span></span><i>Save</i></button>
+          <button class="dockBtn" id="tFwd10"><span class="seekGlyph">+10</span><i>Fwd</i></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 1 BROWSE -->
+    <div class="pane" id="paneBrowse">
+      <div class="seg" id="browseSeg">
+        <button class="on" data-b="discover">Discover</button>
+        <button data-b="tiles">Tiles</button>
+      </div>
+      <div id="browseBody"></div>
+    </div>
+
+    <!-- 2 FABLE -->
+    <div class="pane" id="paneFable">
+      <div id="fableBody"><div class="empty"><span class="spin"></span>&nbsp; Reading the room…</div></div>
+    </div>
+
+    <!-- 3 SAVED -->
+    <div class="pane" id="paneSaved">
+      <div class="seg" id="savedSeg">
+        <button class="on" data-s="presets">Presets</button>
+        <button data-s="history">History</button>
+      </div>
+      <div id="savedBody"></div>
+    </div>
+
+    <!-- 4 SIMILAR -->
+    <div class="pane" id="paneSimilar">
+      <div id="similarBody"><div class="empty"><span class="spin"></span>&nbsp; Finding what sits next to your sound…</div></div>
+    </div>
+  </div>
+
+  <div id="deckWrap"><div id="deck"></div></div>
+
+  <div id="bar">
+    <div id="npRow">
+      <img id="npLogo" alt="">
+      <div id="npTxt">
+        <div id="npName">Nothing playing</div>
+        <div id="npSub">Pick a station</div>
+      </div>
+      <button class="heart" id="npHeart"></button>
+    </div>
+    <div id="ctl">
+      <button class="small" id="prevBtn"></button>
+      <button id="playBtn"></button>
+      <button class="small" id="nextBtn"></button>
+    </div>
+    <div id="scanPanel">
+      <div id="scanStatus">Maestro · warming up…</div>
+      <div id="scanBtns">
+        <button id="scanStop">✕</button>
+        <button id="scanBack">◀◀</button>
+        <button id="lockBtn">▶</button>
+        <button id="scanSkip">▶▶</button>
+        <button class="heart" id="scanHeart">♥</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="notice"></div>
+<audio id="au" preload="none" playsinline></audio>
+<audio id="auB" preload="none" playsinline muted></audio>

@@ -1,0 +1,219 @@
+<script>
+'use strict';
+/* ================= API ================= */
+const MIRRORS=['https://de1.api.radio-browser.info/json','https://at1.api.radio-browser.info/json','https://nl1.api.radio-browser.info/json'];
+let apiBase=null;
+async function api(path,budget){
+  const bases=apiBase?[apiBase,...MIRRORS.filter(m=>m!==apiBase)]:MIRRORS;
+  for(const b of bases){
+    const ac=('AbortController' in window)?new AbortController():null;
+    const t=ac?setTimeout(()=>ac.abort(),budget||6000):null;
+    try{const r=await fetch(b+path,ac?{signal:ac.signal}:undefined);
+      if(r.ok){apiBase=b;return await r.json();}}catch(e){}finally{if(t)clearTimeout(t);}
+  }
+  throw new Error('directory unreachable');
+}
+const BUILD='2026-08-31 17:46';
+const enc=encodeURIComponent;
+const $=id=>document.getElementById(id);
+
+/* ================= TAXONOMY ================= */
+const TAX=[
+ {f:'Pop',e:'✨',g:[
+   ['Pop',['pop music','música pop','pop en español e inglés','pop en inglés','поп-музыка']],
+   ['Top 40',['top 40','hits','pop','top hits','top40','contemporary hits','contemporary hits radio','top charts','charts','top 100','top 40 hits','éxitos']],
+   ['Adult Contemporary',['adult contemporary','hot adult contemporary']],
+   ['Pop Rock',['pop rock','pop-rock']],
+   ['Dance Pop',['pop dance','dance pop']],
+ ]},
+ {f:'Rock',e:'🎸',g:[
+   ['Classic Rock',['classic rock','rock','rock en inglés','rock classics','рок']],
+   ['Alternative',['alternative rock']],
+   ['Indie',['indie','indie rock','alternative','alternative / indie','indie pop']],
+   ['Soft Rock',['soft rock']],
+   ['Metal',['metal','heavy metal','hard rock','black metal']],
+   ['Punk',['punk','punk rock']],
+   ['Prog',['progressive rock','psychedelic']],
+   ['New Wave',['new wave']],
+   ['Grunge',['grunge']],
+   ['Blues Rock',['blues rock']],
+   ['Gothic',['gothic']],
+ ]},
+ {f:'Electronic',e:'🔊',g:[
+   ['House',['house','deep house','tech house','electro house','progressive house','soulful house','deep','club house']],
+   ['Techno',['techno','minimal']],
+   ['Trance',['trance','psytrance']],
+   ['Drum & Bass',['drum and bass','dnb','jungle','drum & bass']],
+   ['Dance',['dance','edm','electronic','electro','electronica','electronic dance music','dance music','club dance','electronic music','club dance electronic house trance']],
+   ['Eurodance',['eurodance']],
+   ['Ambient',['ambient','downtempo','lounge','ambient and relaxation music','lounge music']],
+   ['DJ Mixes',['dj remix','dj sets','dj mixes','remixes']],
+   ['Hardcore',['hardcore']],
+   ['Experimental',['experimental']],
+   ['Progressive',['progressive']],
+ ]},
+ {f:'Hip-Hop & R&B',e:'🎤',g:[
+   ['Hip-Hop',['hip hop','hip-hop','rap','hiphop','rap hiphop rnb']],
+   ['R&B',['rnb','r&b','r&b/urban']],
+   ['Urban',['urban','trap','urban contemporary','black']],
+ ]},
+ {f:'Jazz & Soul',e:'🎷',g:[
+   ['Jazz',['jazz','smooth jazz']],
+   ['Smooth Jazz',['smooth']],
+   ['Swing & Big Band',['swing','big band']],
+   ['Blues',['blues']],
+   ['Soul',['soul','motown']],
+   ['Funk',['funk','disco','groove','funky']],
+   ['Bossa Nova',['bossa nova','samba']],
+ ]},
+ {f:'Classical',e:'🎻',g:[
+   ['Classical',['classical','klassik','classical music']],
+   ['Opera',['opera']],
+   ['Baroque',['baroque']],
+   ['Piano',['piano']],
+ ]},
+ {f:'Country & Folk',e:'🤠',g:[
+   ['Country',['country','country music']],
+   ['Classic Country',['classic country']],
+   ['Bluegrass',['bluegrass','americana']],
+   ['Folk',['folk','singer-songwriter','folk music']],
+   ['Acoustic',['acoustic']],
+ ]},
+ {f:'Throwbacks',e:'📼',g:[
+   ['Classic Hits',['classics','pop clásico','classic hits','clásicos','clásicos en inglés','classic','adult hits']],
+   ['Oldies',['oldies','60s','70s','goldies','flashback','golden oldies','nostalgia','oldies 50\'s/60\'s','ретро','retro','música del recuerdo']],
+   ['80s',['80s','80er']],
+   ['90s',['90s','90er']],
+   ['2000s',['2000s','00s']],
+ ]},
+ {f:'Latin',e:'💃',g:[
+   ['Latin Pop',['latin pop','pop en español','música latina','spanish contemporary hits','pop latino']],
+   ['Balada',['baladas en español','baladas','balada pop','balada en español','balada']],
+   ['Balada Romántica',['amor','sólo música romántica','romantica','musica romantica','balada romántica','romántica','románticas','música romántica']],
+   ['Cumbia',['cumbia','cumbias']],
+   ['Tropical',['tropical','bachata','música tropical','tropical music']],
+   ['Vallenato',['vallenato']],
+   ['Merengue',['merengue']],
+   ['Latin Urban',['urbano','música urbana']],
+   ['Latin Hits',['latin music','musica latina','musica latinoamericana']],
+   ['Spanish Classics',['clásicos en español']],
+   ['Crossover',['crossover']],
+   ['Latin',['latin','salsa','reggaeton','latino']],
+   ['Regional Mexican',['regional mexican','regional mexicana','música popular mexicana','música regional','mexican music','música mexicana','música regional mexicana','regional music','regional radio','musica regional mexicana','musica regional','musica mexicana','rancheras','banda tradicional','sierreño']],
+   ['Grupera',['grupera','grupero']],
+   ['Banda',['banda']],
+   ['Norteño',['banda norteña','norteño','norteña']],
+   ['Ranchera',['ranchera']],
+   ['Mariachi',['mariachi']],
+   ['Traditional Mexican',['traditional mexican music','música tradicional mexicana','musica tradicional mexicana']],
+ ]},
+ {f:'World',e:'🌍',g:[
+   ['World',['world music','world']],
+   ['Reggae',['reggae','dub','dancehall']],
+   ['Afrobeat',['afrobeat','afro','highlife','afrobeats']],
+   ['African',['african music']],
+   ['Ska',['ska']],
+   ['Greek',['greek music']],
+   ['Greek Pop',['greek pop']],
+   ['Greek Folk',['greek folk']],
+   ['Italian',['musica italiana']],
+   ['Italian Pop',['italian pop']],
+   ['Romanian',['petrecere','populară']],
+   ['Manele',['manele']],
+   ['Balkan',['balkan','turbofolk']],
+   ['Celtic',['celtic','irish']],
+   ['Bollywood',['bollywood','hindi']],
+   ['Arabic',['arabic','arab','world middle east']],
+   ['Schlager',['schlager','volksmusik']],
+   ['MPB',['mpb']],
+   ['Indigenous',['indigenous']],
+   ['Levenslied',['piratenhits']],
+ ]},
+ {f:'Asia',e:'🏮',g:[
+   ['J-Pop',['jpop']],
+   ['K-Pop',['kpop','k-pop']],
+   ['OPM',['opm']],
+ ]},
+ {f:'Mood',e:'🌙',g:[
+   ['Chill',['chillout','chill','relax','relaxing','chillout+lounge']],
+   ['Easy Listening',['easy listening']],
+   ['Love Songs',['romantic','love songs','romantic music','love','ballads','romance']],
+   ['Sleep',['meditation','sleep','calm','relaxation']],
+   ['New Age',['new age']],
+   ['Focus',['instrumental','study']],
+   ['Party',['party','club']],
+   ['Christmas',['christmas','xmas','christmas music']],
+ ]},
+ {f:'Screen & Game',e:'🎮',g:[
+   ['Film Scores',['soundtrack','film music','soundtracks']],
+   ['Anime',['anime']],
+   ['Video Game',['video game music']],
+   ['Chiptune',['chiptune']],
+ ]},
+ {f:'Talk & News',e:'🎙',g:[
+   ['News',['news','info']],
+   ['Talk',['talk','spoken word']],
+   ['Sport',['sport','sports']],
+   ['Comedy',['comedy']],
+   ['Culture',['culture','kultur']],
+ ]},
+ {f:'Faith',e:'✝️',g:[
+   ['Gospel & Worship',['christian music','worship','christian-gospel']],
+   ['Contemporary Christian',['christian contemporary']],
+   ['Religious',['christian','gospel','religion']],
+ ]},
+];
+const GENRE={};
+TAX.forEach(F=>F.g.forEach(([n,tags])=>GENRE[n]={name:n,tags,family:F.f,emoji:F.e}));
+const GENRE_LOOKUP={};
+Object.values(GENRE).forEach(g=>{
+  GENRE_LOOKUP[g.name.toLowerCase()]=g.name;
+  g.tags.forEach(t=>{ if(!GENRE_LOOKUP[t])GENRE_LOOKUP[t]=g.name; });
+});
+
+const CC_RAW=[['AD','Europe'],['AL','Europe'],['AT','Europe'],['AX','Europe'],['BA','Europe'],['BE','Europe'],['BG','Europe'],['BY','Europe'],['CH','Europe'],['CY','Europe'],['CZ','Europe'],['DE','Europe'],['DK','Europe'],['EE','Europe'],['ES','Europe'],['FI','Europe'],['FO','Europe'],['FR','Europe'],['GB','Europe'],['GG','Europe'],['GI','Europe'],['GR','Europe'],['HR','Europe'],['HU','Europe'],['IE','Europe'],['IM','Europe'],['IS','Europe'],['IT','Europe'],['JE','Europe'],['LI','Europe'],['LT','Europe'],['LU','Europe'],['LV','Europe'],['MC','Europe'],['MD','Europe'],['ME','Europe'],['MK','Europe'],['MT','Europe'],['NL','Europe'],['NO','Europe'],['PL','Europe'],['PT','Europe'],['RO','Europe'],['RS','Europe'],['RU','Europe'],['SE','Europe'],['SI','Europe'],['SJ','Europe'],['SK','Europe'],['SM','Europe'],['UA','Europe'],['VA','Europe'],['XK','Europe'],['AG','North America'],['AI','North America'],['AW','North America'],['BB','North America'],['BM','North America'],['BQ','North America'],['BS','North America'],['BZ','North America'],['CA','North America'],['CR','North America'],['CU','North America'],['CW','North America'],['DM','North America'],['DO','North America'],['GD','North America'],['GL','North America'],['GP','North America'],['GT','North America'],['HN','North America'],['HT','North America'],['JM','North America'],['KN','North America'],['KY','North America'],['LC','North America'],['MF','North America'],['MQ','North America'],['MS','North America'],['MX','North America'],['NI','North America'],['PA','North America'],['PM','North America'],['PR','North America'],['SV','North America'],['SX','North America'],['TC','North America'],['TT','North America'],['US','North America'],['VC','North America'],['VG','North America'],['VI','North America'],['AR','South America'],['BO','South America'],['BR','South America'],['CL','South America'],['CO','South America'],['EC','South America'],['FK','South America'],['GF','South America'],['GY','South America'],['PE','South America'],['PY','South America'],['SR','South America'],['UY','South America'],['VE','South America'],['AF','Asia'],['BD','Asia'],['BN','Asia'],['BT','Asia'],['CN','Asia'],['HK','Asia'],['ID','Asia'],['IN','Asia'],['JP','Asia'],['KG','Asia'],['KH','Asia'],['KP','Asia'],['KR','Asia'],['KZ','Asia'],['LA','Asia'],['LK','Asia'],['MM','Asia'],['MN','Asia'],['MO','Asia'],['MV','Asia'],['MY','Asia'],['NP','Asia'],['PH','Asia'],['PK','Asia'],['SG','Asia'],['TH','Asia'],['TJ','Asia'],['TL','Asia'],['TM','Asia'],['TW','Asia'],['UZ','Asia'],['VN','Asia'],['AQ','Oceania'],['AS','Oceania'],['AU','Oceania'],['CC','Oceania'],['CK','Oceania'],['CX','Oceania'],['FJ','Oceania'],['FM','Oceania'],['GU','Oceania'],['KI','Oceania'],['MH','Oceania'],['NC','Oceania'],['NR','Oceania'],['NU','Oceania'],['NZ','Oceania'],['PF','Oceania'],['PG','Oceania'],['PW','Oceania'],['SB','Oceania'],['TO','Oceania'],['TV','Oceania'],['UM','Oceania'],['VU','Oceania'],['WF','Oceania'],['AO','Africa'],['BF','Africa'],['BI','Africa'],['BJ','Africa'],['BW','Africa'],['CD','Africa'],['CF','Africa'],['CG','Africa'],['CI','Africa'],['CM','Africa'],['CV','Africa'],['DJ','Africa'],['DZ','Africa'],['EG','Africa'],['ER','Africa'],['ET','Africa'],['GA','Africa'],['GH','Africa'],['GM','Africa'],['GN','Africa'],['GQ','Africa'],['GW','Africa'],['IO','Africa'],['KE','Africa'],['KM','Africa'],['LR','Africa'],['LS','Africa'],['LY','Africa'],['MA','Africa'],['MG','Africa'],['ML','Africa'],['MR','Africa'],['MU','Africa'],['MW','Africa'],['MZ','Africa'],['NA','Africa'],['NE','Africa'],['NG','Africa'],['RE','Africa'],['RW','Africa'],['SC','Africa'],['SD','Africa'],['SH','Africa'],['SL','Africa'],['SN','Africa'],['SO','Africa'],['SS','Africa'],['ST','Africa'],['SZ','Africa'],['TD','Africa'],['TF','Africa'],['TG','Africa'],['TN','Africa'],['TZ','Africa'],['UG','Africa'],['YT','Africa'],['ZA','Africa'],['ZM','Africa'],['ZW','Africa'],['AE','Middle East'],['AM','Middle East'],['AZ','Middle East'],['BH','Middle East'],['GE','Middle East'],['IL','Middle East'],['IQ','Middle East'],['IR','Middle East'],['JO','Middle East'],['KW','Middle East'],['LB','Middle East'],['OM','Middle East'],['PS','Middle East'],['QA','Middle East'],['SA','Middle East'],['SY','Middle East'],['TR','Middle East'],['YE','Middle East']];
+const _RN0=(()=>{try{return new Intl.DisplayNames(['en'],{type:'region'});}catch(e){return null;}})();
+const _flag0=cc=>{try{return String.fromCodePoint(...[...cc].map(c=>0x1F1E6+c.charCodeAt(0)-65));}catch(e){return'';}};
+const COUNTRIES=CC_RAW.map(([cc,rg])=>[cc,(_RN0&&_RN0.of(cc))||cc,_flag0(cc),rg]);
+const CC={},CNAME={};
+COUNTRIES.forEach(([c,n,f,r])=>{CC[n.toLowerCase()]=c;CNAME[c]={name:n,flag:f,region:r};});
+const DEMONYM={irish:'IE',british:'GB',english:'GB',scottish:'GB',welsh:'GB',american:'US',
+ australian:'AU',aussie:'AU',kiwi:'NZ',german:'DE',french:'FR',italian:'IT',spanish:'ES',
+ portuguese:'PT',dutch:'NL',belgian:'BE',swiss:'CH',austrian:'AT',swedish:'SE',norwegian:'NO',
+ danish:'DK',finnish:'FI',icelandic:'IS',polish:'PL',czech:'CZ',greek:'GR',romanian:'RO',
+ hungarian:'HU',serbian:'RS',croatian:'HR',ukrainian:'UA',russian:'RU',turkish:'TR',
+ brazilian:'BR',argentine:'AR',mexican:'MX',chilean:'CL',colombian:'CO',peruvian:'PE',
+ jamaican:'JM',cuban:'CU',japanese:'JP',korean:'KR',chinese:'CN',indian:'IN',thai:'TH',
+ indonesian:'ID',filipino:'PH',vietnamese:'VN',israeli:'IL',emirati:'AE',
+ 'south african':'ZA',nigerian:'NG',kenyan:'KE',egyptian:'EG',moroccan:'MA',ghanaian:'GH',
+ canadian:'CA'};
+const RANKINGS=[
+ {k:'best',words:['best','top','greatest','popular','most popular','biggest'],label:'most loved'},
+ {k:'trending',words:['trending','hot','rising','buzzing'],label:'trending now'},
+ {k:'underrated',words:['underrated','hidden','hidden gems','gems','obscure','undiscovered','deep cuts'],label:'hidden gems'},
+ {k:'hifi',words:['hifi','hi-fi','high quality','lossless','320','best sounding'],label:'highest fidelity'},
+ {k:'random',words:['random','surprise','anything','whatever','roulette'],label:'rolled at random'},
+];
+
+/* ================= ICONS ================= */
+const ICON={
+ prev:'M11 5v14L4 12l7-7Zm9 0v14l-7-7 7-7Z',
+ next:'M13 5v14l7-7-7-7ZM4 5v14l7-7L4 5Z',
+ play:'M8 5.2v13.6L19 12 8 5.2Z',
+ pause:'M7.5 5h3.2v14H7.5V5Zm5.8 0h3.2v14h-3.2V5Z',
+ heart:'M12 20.7s-7.2-4.5-9.5-8.8C.7 8.5 2.3 4.8 6 4.8c2.2 0 3.5 1.4 4 2.2.5-.8 1.8-2.2 4-2.2 3.7 0 5.3 3.7 3.5 7.1C19.2 16.2 12 20.7 12 20.7Z',
+ shazam:'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2.6a7.4 7.4 0 1 1 0 14.8 7.4 7.4 0 0 1 0-14.8Zm-1.6 3.2c1.6-.9 3.4-.3 4.1 1 .3.6.1 1.2-.4 1.4-.5.2-1 0-1.3-.5-.3-.5-.9-.7-1.5-.4L9.6 10c-.5.3-1.1.1-1.4-.4-.3-.5-.1-1.1.4-1.4l1.8-.4Zm3.2 8.4c-1.6.9-3.4.3-4.1-1-.3-.6-.1-1.2.4-1.4.5-.2 1 0 1.3.5.3.5.9.7 1.5.4l1.7-.7c.5-.3 1.1-.1 1.4.4.3.5.1 1.1-.4 1.4l-1.8.4Z',
+ note:'M20 3.5v11.2a3.3 3.3 0 1 1-2-3V7.3l-8 1.9v7.5a3.3 3.3 0 1 1-2-3V6.6l12-3.1Z',
+ shuffle:'M16 3.5h5v5h-2V6.9l-4.3 4.3-1.4-1.4L17.6 5.5H16v-2ZM3.7 5.1l4.6 4.6-1.4 1.4L2.3 6.5l1.4-1.4Zm12.3 10.4v-2h5v5h-2v-1.6l-4.3-4.3 1.4-1.4 3.9 3.9v-1.6h-4Zm-8.4-1.6 1.4 1.4-4.6 4.6-1.4-1.4 4.6-4.6Z',
+ chev:'M9 5l7 7-7 7',
+ back:'M15 5l-7 7 7 7',
+ close:'M6 6l12 12M18 6 6 18',
+ check:'M5 13l4 4L19 7',
+};
+function ic(n,size){size=size||22;
+  const fill=(n==='chev'||n==='back'||n==='close');
+  return '<svg viewBox="0 0 24 24" width="'+size+'" height="'+size+'" aria-hidden="true">'
+    +'<path d="'+ICON[n]+'" '+(fill
+      ?'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"'
+      :'fill="currentColor"')+'/></svg>';
+}
