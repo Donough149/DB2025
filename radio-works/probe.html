@@ -1,0 +1,244 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Radio Works — now-playing probe</title>
+<style>
+:root{color-scheme:dark;--bg:#0e0f12;--fg:#e9eaee;--dim:#8b8f9a;--ok:#4ade80;--bad:#f87171;--warn:#fbbf24;--line:#23252b;--card:#16181d}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
+     padding:max(16px,env(safe-area-inset-top)) 16px max(24px,env(safe-area-inset-bottom))}
+h1{font-size:18px;margin:0 0 2px}
+.sub{color:var(--dim);font-size:13px;margin-bottom:14px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+button{background:#2563eb;color:#fff;border:0;border-radius:9px;padding:11px 16px;font-size:15px;font-weight:600;cursor:pointer}
+button.sec{background:#2a2d35}
+button:disabled{opacity:.45}
+input{width:64px;background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:10px;font-size:15px;text-align:center}
+label{color:var(--dim);font-size:13px}
+#prog{height:4px;background:var(--line);border-radius:2px;overflow:hidden;margin-bottom:14px}
+#bar{height:100%;width:0;background:var(--ok);transition:width .2s}
+#sum{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:14px;
+     white-space:pre-wrap;font:12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
+#sum:empty{display:none}
+.row{border-bottom:1px solid var(--line);padding:9px 2px;display:grid;grid-template-columns:1fr auto;gap:2px 10px}
+.nm{font-weight:600}
+.meta{color:var(--dim);font:11.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;text-align:right;white-space:nowrap}
+.song{grid-column:1/-1;color:var(--ok);font-size:13px;word-break:break-word}
+.song.none{color:var(--bad)}
+.why{grid-column:1/-1;color:var(--dim);font:11px/1.5 ui-monospace,Menlo,monospace;word-break:break-all}
+.tag{display:inline-block;padding:1px 6px;border-radius:5px;background:#2a2d35;margin-left:5px;font-size:11px}
+.tag.http{background:#4a3a12;color:var(--warn)}
+.tag.nocors{background:#4a1d1d;color:var(--bad)}
+</style>
+
+<h1>Radio Works — now-playing probe</h1>
+<div class="sub">Runs in the browser, so what it can read is exactly what the Shortcut can read.</div>
+
+<div class="bar">
+  <label>Stations <input id="n" type="number" value="40" min="5" max="150"></label>
+  <button id="go">Run probe</button>
+  <button id="cp" class="sec" disabled>Copy results</button>
+</div>
+<div id="prog"><div id="bar"></div></div>
+<div id="sum"></div>
+<div id="out"></div>
+
+<script>
+const $=s=>document.querySelector(s);
+const TIMEOUT=6000;
+let report=[];
+
+/* A browser cannot see *why* a cross-origin fetch failed — a CORS refusal and a
+   dead host both surface as the same TypeError. So we note the distinction we
+   CAN make: whether the request completed at all. */
+async function grab(url,how){
+  const ac=new AbortController(), t=setTimeout(()=>ac.abort(),TIMEOUT);
+  try{
+    const r=await fetch(url,{signal:ac.signal,mode:'cors',cache:'no-store',credentials:'omit'});
+    if(!r.ok)return{err:'HTTP '+r.status};
+    return{body:how==='json'?await r.json():await r.text()};
+  }catch(e){
+    return{err:e.name==='AbortError'?'timeout':(/NetworkError|Failed to fetch|Load failed/i.test(e.message)?'blocked (CORS or dead)':String(e.message).slice(0,40))};
+  }finally{clearTimeout(t);}
+}
+const getJSON=u=>grab(u,'json'), getText=u=>grab(u,'text');
+
+/* ---- find a song in JSON we have never seen ---- */
+const SONG_KEYS=/^(song_?title|songtitle|streamtitle|stream_title|now_?playing|nowplaying|currently_?playing|current_?song|current_?track|track_?title|song_?name|track_?name|title|song|track|text)$/i;
+const TITLE_KEYS=/^(title|song|track|name|song_?name|track_?name|title_?name)$/i;
+function deepSong(o,d=0,seen=new Set()){
+  if(!o||d>6||typeof o!=='object'||seen.has(o))return null;
+  seen.add(o);
+  if(Array.isArray(o)){for(const v of o.slice(0,12)){const h=deepSong(v,d+1,seen);if(h)return h;}return null;}
+  const K=Object.keys(o);
+  const ak=K.find(k=>/^artist(_?name)?$/i.test(k)), tk=K.find(k=>TITLE_KEYS.test(k));
+  if(ak&&tk){
+    const av=o[ak], a=typeof av==='string'?av:(av&&typeof av.name==='string'?av.name:'');
+    const t=typeof o[tk]==='string'?o[tk]:'';
+    if(t.trim())return{s:(a.trim()?a.trim()+' - ':'')+t.trim(),via:ak+'+'+tk};
+  }
+  for(const k of K)if(typeof o[k]==='string'&&o[k].trim()&&SONG_KEYS.test(k))return{s:o[k].trim(),via:k};
+  for(const k of K)if(o[k]&&typeof o[k]==='object'){const h=deepSong(o[k],d+1,seen);if(h)return h;}
+  return null;
+}
+/* Triton wraps values in CDATA, not a value="" attribute. */
+function tritonProp(x,n){
+  const m=x.match(new RegExp('name="'+n+'"[^>]*>\\s*(?:<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>|([^<]*))','i'));
+  return m?String(m[1]??m[2]??'').trim():'';
+}
+
+const RUNGS=[
+ {name:'azuracast',claim:u=>/\/(listen|radio)\//.test(u.pathname)||/azura/i.test(u.host),
+  run:async u=>{
+    const m=u.pathname.match(/\/listen\/([^/]+)\//)||u.pathname.match(/\/radio\/\d+\/([^/]+)/);
+    const tries=m?[u.origin+'/api/nowplaying_static/'+m[1]+'.json',u.origin+'/api/nowplaying']:[u.origin+'/api/nowplaying'];
+    for(const t of tries){
+      const r=await getJSON(t); if(r.err)continue;
+      const j=r.body, np=Array.isArray(j)?j[0]&&j[0].now_playing:j&&j.now_playing, s=np&&np.song;
+      if(s&&s.title)return{raw:s.artist?s.artist+' - '+s.title:(s.text||s.title),key:'now_playing.song'};
+    } return null;}},
+ {name:'radio.co',claim:u=>/radio\.co$/.test(u.host),
+  run:async u=>{const id=(u.pathname.match(/\/(s[0-9a-z]+)\b/i)||[])[1];if(!id)return null;
+    const r=await getJSON('https://public.radio.co/stations/'+id+'/status');if(r.err)return null;
+    const c=r.body&&r.body.current_track;return c&&c.title?{raw:c.title,key:'current_track.title'}:null;}},
+ {name:'radioking',claim:u=>/radioking/i.test(u.host),
+  run:async u=>{const s=(u.pathname.match(/\/(?:play|radio)\/([^/]+)/)||[])[1];if(!s)return null;
+    const r=await getJSON('https://api.radioking.io/widget/radio/'+s+'/track/current');if(r.err)return null;
+    const j=r.body;return j&&j.title?{raw:j.artist?j.artist+' - '+j.title:j.title,key:'artist+title'}:null;}},
+ {name:'laut.fm',claim:u=>/laut\.fm$/.test(u.host),
+  run:async u=>{const n=u.pathname.replace(/^\//,'').split('/')[0];if(!n)return null;
+    const r=await getJSON('https://api.laut.fm/station/'+n+'/current_song');if(r.err)return null;
+    const j=r.body;return j&&j.title?{raw:(j.artist&&j.artist.name?j.artist.name+' - ':'')+j.title,key:'artist.name+title'}:null;}},
+ {name:'radiojar',claim:u=>/radiojar/i.test(u.host),
+  run:async u=>{const id=u.pathname.replace(/^\//,'').split('/')[0];if(!id)return null;
+    const r=await getJSON('https://www.radiojar.com/api/stations/'+id+'/now_playing/');if(r.err)return null;
+    const j=r.body;return j&&j.title?{raw:(j.artist?j.artist+' - ':'')+j.title,key:'artist+title'}:null;}},
+ {name:'triton',claim:u=>/streamtheworld|tritondigital/i.test(u.host),
+  run:async u=>{const m=u.pathname.match(/([A-Z0-9_]+(?:AAC|MP3|_SC)?)(?:\.(?:mp3|aac))?$/i);if(!m)return null;
+    const r=await getText('https://np.tritondigital.com/public/nowplaying?mountName='+m[1]+'&numberToFetch=1&eventType=track');
+    if(r.err)return null;
+    const a=tritonProp(r.body,'track_artist_name'), t=tritonProp(r.body,'cue_title');
+    return t?{raw:(a?a+' - ':'')+t,key:'cue_title(CDATA)'}:null;}},
+ {name:'icecast',claim:()=>true,
+  run:async u=>{const r=await getJSON(u.origin+'/status-json.xsl');if(r.err)return null;
+    const src=r.body&&r.body.icestats&&r.body.icestats.source;if(!src)return null;
+    const arr=Array.isArray(src)?src:[src];
+    const mine=arr.find(s=>typeof s.listenurl==='string'&&s.listenurl.endsWith(u.pathname))||arr[0];
+    if(!mine)return null;
+    const k=['title','yp_currently_playing','song'].find(k=>typeof mine[k]==='string'&&mine[k].trim());
+    return k?{raw:mine[k].trim(),key:'icestats.source.'+k}:null;}},
+ {name:'shoutcast2',claim:()=>true,
+  run:async u=>{for(const t of [u.origin+'/stats?json=1&sid=1',u.origin+'/statistics?json=1']){
+    const r=await getJSON(t);if(r.err)continue;
+    const j=r.body;
+    if(j&&j.songtitle)return{raw:String(j.songtitle).trim(),key:'songtitle'};
+    const h=deepSong(j);if(h)return{raw:h.s,key:h.via};
+  } return null;}},
+ {name:'shoutcast1',claim:()=>true,
+  run:async u=>{const r=await getText(u.origin+'/7.html');if(r.err)return null;
+    const m=String(r.body).match(/<body>([^<]*)</i);if(!m)return null;
+    const f=m[1].split(',');if(f.length<7)return null;
+    const raw=f.slice(6).join(',').trim();return raw?{raw,key:'7.html field 7'}:null;}},
+ {name:'generic',claim:()=>true,
+  run:async u=>{for(const t of [u.origin+'/api/nowplaying',u.origin+'/nowplaying.json',
+      u.origin+'/currentsong?sid=1',u.origin+'/api/live-info']){
+    const r=await getText(t);if(r.err)continue;
+    let j=null;try{j=JSON.parse(r.body);}catch(e){}
+    if(j){const h=deepSong(j);if(h)return{raw:h.s,key:h.via};}
+    else{const b=String(r.body).trim();
+      if(b&&b.length<200&&!/^</.test(b))return{raw:b,key:'plain text'};}
+  } return null;}},
+];
+
+/* the app's split, so we see what the user would actually be shown */
+function splitPair(raw){
+  let t=String(raw).replace(/\s+/g,' ').trim().replace(/\s*\|\s*[^|]*$/,'').trim();
+  const by=t.match(/^(.*?)\s+by\s+(.+)$/i);
+  if(by)return{title:by[1].trim(),artist:by[2].trim()};
+  const d=t.split(/\s+[-–—]\s+/);
+  if(d.length>=2)return{artist:d[0].trim(),title:d.slice(1).join(' - ').trim()};
+  return{artist:'',title:t};
+}
+
+async function stationList(n){
+  for(const h of ['de1.api.radio-browser.info','nl1.api.radio-browser.info','at1.api.radio-browser.info']){
+    const r=await getJSON('https://'+h+'/json/stations/search?limit='+n+'&hidebroken=true&order=random');
+    if(!r.err&&Array.isArray(r.body)&&r.body.length)return r.body;
+  }
+  return null;
+}
+
+$('#go').onclick=async()=>{
+  $('#go').disabled=true; $('#cp').disabled=true;
+  $('#out').innerHTML=''; $('#sum').textContent='Fetching stations…'; report=[];
+
+  const n=Math.max(5,Math.min(150,+$('#n').value||40));
+  const list=await stationList(n);
+  if(!list){ $('#sum').textContent='Could not reach radio-browser at all.\nIf you opened this from a https:// page, try saving it and opening the file directly.'; $('#go').disabled=false; return; }
+
+  const tally={}, scheme={http:0,https:0};
+  let hits=0, done=0;
+  $('#sum').textContent='Running…';
+
+  for(const st of list){
+    const stream=st.url_resolved||st.url||'';
+    let base; try{ base=new URL(stream); }catch(e){ done++; continue; }
+    /* Try the stream's OWN scheme first. Forcing https breaks http-only
+       Icecast/Shoutcast hosts, which are the majority. */
+    const order=base.protocol==='http:'?['http:','https:']:['https:','http:'];
+    let got=null,gotRung='',gotScheme='',lastErr='';
+
+    outer:
+    for(const sc of order){
+      const u=new URL(base.href); u.protocol=sc;
+      for(const rung of RUNGS){
+        let c=false; try{ c=rung.claim(u,st); }catch(e){}
+        if(!c)continue;
+        let hit=null; try{ hit=await rung.run(u,st); }catch(e){ lastErr=String(e.message||e).slice(0,40); }
+        if(hit&&hit.raw){ got=hit; gotRung=rung.name; gotScheme=sc.replace(':',''); break outer; }
+      }
+    }
+
+    const row=document.createElement('div'); row.className='row';
+    const nm=(st.name||'').replace(/\s+/g,' ').trim();
+    if(got){
+      hits++; tally[gotRung]=(tally[gotRung]||0)+1; scheme[gotScheme]++;
+      const p=splitPair(got.raw);
+      row.innerHTML='<div class="nm"></div>'
+        +'<div class="meta">'+gotRung+'<span class="tag '+(gotScheme==='http'?'http':'')+'">'+gotScheme+'</span></div>'
+        +'<div class="song"></div><div class="why">'+got.key+'</div>';
+      row.querySelector('.nm').textContent=nm+'  ('+(st.countrycode||'??')+')';
+      row.querySelector('.song').textContent=(p.artist||'—')+'  /  '+p.title;
+      report.push([nm,st.countrycode,gotRung,gotScheme,got.key,p.artist,p.title].join(' | '));
+    }else{
+      row.innerHTML='<div class="nm"></div><div class="meta">—</div>'
+        +'<div class="song none">no song</div><div class="why"></div>';
+      row.querySelector('.nm').textContent=nm+'  ('+(st.countrycode||'??')+')';
+      row.querySelector('.why').textContent=stream.slice(0,90)+(lastErr?'   ['+lastErr+']':'');
+      report.push([nm,st.countrycode,'NONE','','','','',stream.slice(0,90)].join(' | '));
+    }
+    $('#out').appendChild(row);
+    done++; $('#bar').style.width=(done/list.length*100)+'%';
+  }
+
+  const byRung=Object.entries(tally).sort((a,b)=>b[1]-a[1]).map(([k,v])=>k+'='+v).join('  ')||'none';
+  const head=hits+'/'+list.length+' stations returned a song\n'
+    +'by rung:   '+byRung+'\n'
+    +'by scheme: http='+scheme.http+'  https='+scheme.https+'\n'
+    +'page origin: '+(location.protocol)+'  (matches the Shortcut only if this is file: or data:)';
+  $('#sum').textContent=head;
+  report.unshift(head,'');
+  $('#cp').disabled=false; $('#go').disabled=false;
+};
+
+$('#cp').onclick=async()=>{
+  const txt=report.join('\n');
+  try{ await navigator.clipboard.writeText(txt); $('#cp').textContent='Copied'; }
+  catch(e){
+    const ta=document.createElement('textarea');
+    ta.value=txt; ta.style.cssText='position:fixed;inset:10px;z-index:9;font:11px monospace';
+    document.body.appendChild(ta); ta.select(); $('#cp').textContent='Select all & copy';
+  }
+  setTimeout(()=>$('#cp').textContent='Copy results',2500);
+};
+</script>
