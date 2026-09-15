@@ -42,7 +42,11 @@ async function getText(url, signal) {
 /* --- pull a song out of an arbitrary shape, so a platform we have never seen
        still works. Prefers an explicit artist+title pair over a combined
        string, because splitting on " - " is a guess and a pair is not. --- */
-const SONG_KEYS = /^(song_?title|songtitle|streamtitle|stream_title|now_?playing|nowplaying|currently_?playing|current_?song|current_?track|track_?title|title|song|track|text)$/i;
+const SONG_KEYS = /^(song_?title|songtitle|streamtitle|stream_title|now_?playing|nowplaying|currently_?playing|current_?song|current_?track|track_?title|song_?name|track_?name|title|song|track|text)$/i;
+/* Title-ish key for the artist+title PAIR case. Kept separate from SONG_KEYS:
+   a pair is only trusted when an artist key sits beside it, so this may be
+   loose (plain 'name' included) without inviting false positives. */
+const TITLE_KEYS = /^(title|song|track|name|song_?name|track_?name|title_?name)$/i;
 function deepSong(obj, depth = 0, seen = new Set()) {
   if (!obj || depth > 6 || (typeof obj === 'object' && seen.has(obj))) return null;
   if (typeof obj === 'object') seen.add(obj);
@@ -55,7 +59,7 @@ function deepSong(obj, depth = 0, seen = new Set()) {
   if (typeof obj !== 'object') return null;
 
   const ak = Object.keys(obj).find(k => /^artist(_?name)?$/i.test(k));
-  const tk = Object.keys(obj).find(k => /^(title|song|track|name)$/i.test(k));
+  const tk = Object.keys(obj).find(k => TITLE_KEYS.test(k));
   if (ak && tk) {
     const a = typeof obj[ak] === 'string' ? obj[ak]
             : (obj[ak] && typeof obj[ak].name === 'string' ? obj[ak].name : '');
@@ -77,6 +81,38 @@ const artOf = (o) => {
   }
   return null;
 };
+
+/* ---------- normalise an ICY-shaped string before handing it on ----------
+ * The page's parseTrack() splits on /\s+[-–—]\s+/ — whitespace required on
+ * both sides, and no knowledge of full-width punctuation. CJK feeds break
+ * both assumptions: "宇多ヒカル－First Love" has a U+FF0D and no spaces, so
+ * the whole thing lands in the title and the artist comes out blank.
+ *
+ * Fixing it here rather than in parseTrack keeps that function untouched.
+ * The unspaced-hyphen rule is deliberately gated on the string containing
+ * CJK/Kana/Hangul: applying it to Latin text would split "Jean-Michel Jarre". */
+const CJK = /[぀-ヿ㐀-䶿一-鿿가-힯]/;
+function normalizeIcy(s) {
+  if (!s) return s;
+  let t = String(s)
+    .replace(/　/g, ' ')            // ideographic space
+    .replace(/[－‐‒]/g, '-')  // full-width / figure dash
+    .replace(/～/g, '~')
+    .trim();
+  if (CJK.test(t) && !/\s[-–—]\s/.test(t)) {
+    const m = t.match(/^([^-–—]{2,})[-–—]([^-–—].*)$/);
+    if (m) t = m[1].trim() + ' - ' + m[2].trim();
+  }
+  return t;
+}
+
+/* Read one <property name="X"> out of a Triton nowplaying document, whether or
+   not the value is wrapped in CDATA. */
+function tritonProp(xml, name) {
+  const re = new RegExp('name="' + name + '"[^>]*>\\s*(?:<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>|([^<]*))', 'i');
+  const m = xml.match(re);
+  return m ? String(m[1] ?? m[2] ?? '').trim() : '';
+}
 
 /* ================= ABC (unchanged — their streams carry no ICY at all) ==== */
 const ABC_SLUGS = [['triple j unearthed','unearthed'],['unearthed','unearthed'],
@@ -161,9 +197,13 @@ const RUNGS = [
     run: async (u, st, sig) => {
       const m = u.pathname.match(/([A-Z0-9_]+(?:AAC|MP3|_SC)?)(?:\.(?:mp3|aac))?$/i); if (!m) return null;
       const x = await getText(`https://np.tritondigital.com/public/nowplaying?mountName=${m[1]}&numberToFetch=1&eventType=track`, sig);
-      const a = x.match(/name="track_artist_name"\s+value="([^"]*)"/i);
-      const t = x.match(/name="cue_title"\s+value="([^"]*)"/i);
-      return t?.[1] ? { raw: (a?.[1] ? a[1] + ' - ' : '') + t[1], art: null } : null;
+      /* Triton wraps each field in <property name="…"><![CDATA[…]]></property>.
+         An earlier version looked for a value="…" attribute, which does not
+         exist — so every Triton station (most large US broadcasters) silently
+         returned nothing. */
+      const a = tritonProp(x, 'track_artist_name');
+      const t = tritonProp(x, 'cue_title');
+      return t ? { raw: (a ? a + ' - ' : '') + t, art: tritonProp(x, 'track_album_art') || null } : null;
     } },
 
   /* The generic self-hosted pair. Icecast 2.4+ serves status-json.xsl with
@@ -243,7 +283,7 @@ async function fetchNowPlaying(st, warm) {
           rungMemo.set(id, rung.name);
           negMemo.delete(id);
           if (!warm) fetchNowPlaying.source = rung.name;
-          return { raw: hit.raw, art: hit.art || null };
+          return { raw: normalizeIcy(hit.raw), art: hit.art || null };
         }
       } catch { /* CORS, 404, timeout — all the same to us: try the next rung */ }
       if (sig && sig.aborted) break;
@@ -256,4 +296,4 @@ async function fetchNowPlaying(st, warm) {
   return { raw: null, art: null };
 }
 
-if (typeof module !== 'undefined' && module.exports) module.exports = { fetchNowPlaying, deepSong };
+if (typeof module !== 'undefined' && module.exports) module.exports = { fetchNowPlaying, deepSong, normalizeIcy, tritonProp };

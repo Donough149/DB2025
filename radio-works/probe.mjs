@@ -54,9 +54,19 @@ const json = (s) => { try { return JSON.parse(s); } catch { return null; } };
 /* ---------- splitting "Artist - Title" ----------
  * Deliberately conservative. Some feeds give artist and title as separate
  * fields, in which case we never guess at all. */
+const CJK = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/;
+function normalizeIcy(s) {
+  if (!s) return s;
+  let t = String(s).replace(/\u3000/g, ' ').replace(/[\uff0d\u2010\u2012]/g, '-').replace(/\uff5e/g, '~').trim();
+  if (CJK.test(t) && !/\s[-\u2013\u2014]\s/.test(t)) {
+    const m = t.match(/^([^-\u2013\u2014]{2,})[-\u2013\u2014]([^-\u2013\u2014].*)$/);
+    if (m) t = m[1].trim() + ' - ' + m[2].trim();
+  }
+  return t;
+}
 function splitPair(raw) {
   if (!raw) return null;
-  let t = String(raw).replace(/\s+/g, ' ').trim();
+  let t = normalizeIcy(String(raw).replace(/\s+/g, ' ').trim());
   if (!t) return null;
   const m = t.split(/\s+[-–—]\s+/);
   if (m.length >= 2) return { artist: m[0].trim(), title: m.slice(1).join(' - ').trim() };
@@ -79,7 +89,8 @@ function looksLikeSong(p, stationName) {
 /* ---------- walk an object and find the first key that holds a song ----------
  * Used as the last resort so we LEARN new shapes instead of missing them.
  * Returns {path, value} so the report can show where it lived. */
-const SONG_KEYS = /^(song_?title|songtitle|streamtitle|stream_title|now_?playing|nowplaying|currently_?playing|current_?song|current_?track|track_?title|title|song|track|text)$/i;
+const SONG_KEYS = /^(song_?title|songtitle|streamtitle|stream_title|now_?playing|nowplaying|currently_?playing|current_?song|current_?track|track_?title|song_?name|track_?name|title|song|track|text)$/i;
+const TITLE_KEYS = /^(title|song|track|name|song_?name|track_?name|title_?name)$/i;
 function deepFindSong(obj, stationName, path = '$', depth = 0, seen = new Set()) {
   if (!obj || depth > 6 || seen.has(obj)) return null;
   if (typeof obj === 'object') seen.add(obj);
@@ -94,7 +105,7 @@ function deepFindSong(obj, stationName, path = '$', depth = 0, seen = new Set())
 
   // an explicit artist+title pair beats any combined string
   const ak = Object.keys(obj).find((k) => /^artist(_?name)?$/i.test(k));
-  const tk = Object.keys(obj).find((k) => /^(title|song|track|name)$/i.test(k));
+  const tk = Object.keys(obj).find((k) => TITLE_KEYS.test(k));
   if (ak && tk && typeof obj[ak] === 'string' && typeof obj[tk] === 'string' && obj[tk].trim()) {
     const artist = typeof obj[ak] === 'string' ? obj[ak] : '';
     const p = { artist: artist.trim(), title: obj[tk].trim() };
@@ -204,11 +215,18 @@ const RUNGS = [
   },
 ];
 
+/* Triton wraps every field as <property name="X"><![CDATA[...]]></property>.
+   There is no value="..." attribute; looking for one found nothing, ever. */
+function tritonProp(xml, name) {
+  const re = new RegExp('name="' + name + '"[^>]*>\\s*(?:<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>|([^<]*))', 'i');
+  const m = xml.match(re);
+  return m ? String(m[1] ?? m[2] ?? '').trim() : '';
+}
 function parseXmlTrack(body) {
-  const a = body.match(/<artist>([^<]*)<\/artist>/i);
-  const t = body.match(/<title>([^<]*)<\/title>/i) || body.match(/cue_title><!\[CDATA\[([^\]]*)\]\]/i);
-  if (t && t[1]) return { path: '$.nowplaying.title', parsed: { artist: (a && a[1] || '').trim(), title: t[1].trim() }, raw: `${a && a[1] || ''} - ${t[1]}` };
-  return null;
+  const t = tritonProp(body, 'cue_title');
+  if (!t) return null;
+  const a = tritonProp(body, 'track_artist_name');
+  return { path: '$.nowplaying-info.property[cue_title]', parsed: { artist: a, title: t }, raw: (a ? a + ' - ' : '') + t };
 }
 
 async function probeStation(st) {
