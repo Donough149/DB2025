@@ -3623,6 +3623,17 @@ if(/[?&]probe=calm\b/.test(location.search)){
   var NP_TIMEOUT=4500;
   var rungMemo=new Map();      // stationuuid -> the rung that answered last time
 
+  /* probe.mjs found this in the wild: some icecast/shoutcast admins leave the
+     'title' field set to a literal placeholder instead of clearing it, so a
+     naive extractor reports it as a real song (Radio 1 Tahiti: 'Now Playing
+     info goes here'). These rungs pull straight from a named field with no
+     validation, so the check has to live here rather than upstream. */
+  var JUNK_RE=/^(now playing(?: info)?(?: goes here)?|no (?:track|song) info(?:rmation)?(?: available)?|stream (?:offline|paused)|off[\s-]?air|unknown(?: artist| title)?|n\/?a|no data|not available|-+|\.+)$/i;
+  function isJunk(raw){
+    var t=String(raw).replace(/\s+/g,' ').trim();
+    return !t||JUNK_RE.test(t);
+  }
+
   function getJSON(url,sig){
     return fetch(url,{signal:sig,mode:'cors',cache:'no-store',credentials:'omit'})
       .then(function(r){ if(!r.ok)throw new Error(r.status); return r.json(); });
@@ -3892,7 +3903,7 @@ if(/[?&]probe=calm\b/.test(location.search)){
         if(!claims)continue;
         try{
           var hit=await rung.run(u,st,sig);
-          if(hit&&hit.raw){
+          if(hit&&hit.raw&&!isJunk(hit.raw)){
             rungMemo.set(id,rung.name);
             if(!warm){ npSource=rung.name; npDirectArt=hit.art||null; }
             return {raw:normalizeIcy(hit.raw),art:hit.art||null};
